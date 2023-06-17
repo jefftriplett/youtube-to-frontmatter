@@ -1,0 +1,7 @@
+environs
+google-api-python-client
+pydantic
+python-frontmatter
+python-slugify
+rich
+typer

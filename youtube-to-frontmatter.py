@@ -43,7 +43,7 @@ from slugify import slugify
 from typing import Optional
 
 
-__version__ = "2023.6.1"
+__version__ = "2023.11.1"
 
 
 env = Env()

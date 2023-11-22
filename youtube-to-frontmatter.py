@@ -46,6 +46,11 @@ from typing import Optional
 __version__ = "2023.6.1"
 
 
+env = Env()
+
+YOUTUBE_API_KEY: str = env.str("YOUTUBE_API_KEY")
+
+
 class VideoModel(BaseModel):
     """
     Our base class for our default "Video" fields.
@@ -54,7 +59,7 @@ class VideoModel(BaseModel):
     title: str
     slug: Optional[str] = None
     url: Optional[str]
-    year: Optional[str] = None
+    year: Optional[int] = None
 
     class Config:
         extra = "allow"
@@ -67,12 +72,7 @@ class VideoModel(BaseModel):
             self.slug = slugify(self.title)
 
 
-env = Env()
-
-YOUTUBE_API_KEY = env.str("YOUTUBE_API_KEY")
-
-
-def get_channel_videos(channel_id: str, max_results: int = 50):
+def get_channel_videos(*, channel_id: str, max_results: int = 50):
     youtube = googleapiclient.discovery.build(
         "youtube", "v3", developerKey=YOUTUBE_API_KEY
     )
@@ -128,7 +128,7 @@ def get_playlist_videos(
 
 def main(
     channel_id: Optional[str] = typer.Option(None, "--channel"),
-    max_results: Optional[str] = typer.Option(100, "--max"),
+    max_results: Optional[int] = typer.Option(100, "--max"),
     playlist_id: Optional[str] = typer.Option(None, "--playlist"),
     year: Optional[int] = 2023,
 ):
@@ -137,10 +137,10 @@ def main(
         raise typer.Exit(code=1)
 
     if channel_id:
-        videos = get_channel_videos(channel_id, max_results=max_results)
+        videos = get_channel_videos(channel_id=channel_id, max_results=max_results)
 
     elif playlist_id:
-        videos = get_playlist_videos(playlist_id, max_results=max_results)
+        videos = get_playlist_videos(playlist_id=playlist_id, max_results=max_results)
 
     else:
         print("You need to specify a channel or a playlist.")
@@ -149,7 +149,7 @@ def main(
     save_videos(videos, year)
 
 
-def save_videos(videos, year):
+def save_videos(videos, year: int):
     output_folder = Path(f"{year}")
     if not output_folder.exists():
         output_folder.mkdir()
@@ -159,7 +159,7 @@ def save_videos(videos, year):
         data = VideoModel(**video)
         data.year = year
         post = frontmatter.loads(description)
-        post.metadata.update(data.dict(exclude_unset=True))
+        post.metadata.update(data.model_dump(exclude_unset=True))
         output_folder.joinpath(f"{data.slug}.md").write_text(
             frontmatter.dumps(post) + os.linesep
         )

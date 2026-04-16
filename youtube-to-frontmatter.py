@@ -32,6 +32,7 @@ python youtube-to-frontmatter.py --playlist=PL2NFhrDSOxgUoF-4F2MdAFvOK1wOrNdqB
 
 import frontmatter
 import googleapiclient.discovery
+import json
 import os
 import typer
 
@@ -72,15 +73,23 @@ class VideoModel(BaseModel):
             self.slug = slugify(self.title)
 
 
-def get_channel_videos(*, channel_id: str, max_results: int = 50):
+def get_channel_videos(
+    *,
+    channel_id: str,
+    max_results: int = 100,
+):
     youtube = googleapiclient.discovery.build(
         "youtube", "v3", developerKey=YOUTUBE_API_KEY
     )
 
     request = youtube.search().list(
-        part="snippet", channelId=channel_id, maxResults=max_results, type="video"
+        part="id,snippet,contentDetails",
+        channelId=channel_id,
+        maxResults=max_results,
+        type="video",
     )
     videos = []
+    video = None
 
     while request:
         response = request.execute()
@@ -100,20 +109,23 @@ def get_channel_videos(*, channel_id: str, max_results: int = 50):
 def get_playlist_videos(
     *,
     playlist_id: str,
-    max_results: int = 50,
+    max_results: int = 100,
 ):
     youtube = googleapiclient.discovery.build(
         "youtube", "v3", developerKey=YOUTUBE_API_KEY
     )
 
     request = youtube.playlistItems().list(
-        part="snippet", maxResults=max_results, playlistId=playlist_id
+        part="id,snippet,contentDetails", maxResults=max_results, playlistId=playlist_id
     )
     videos = []
+    video = None
 
     while request:
         response = request.execute()
+        print(response)
         for item in response["items"]:
+            Path("json", f"{item['id']}.json").write_text(json.dumps(item, indent=2))
             video = {
                 "url": f"https://www.youtube.com/watch?v={item['snippet']['resourceId']['videoId']}",
                 "title": item["snippet"]["title"],
@@ -126,30 +138,11 @@ def get_playlist_videos(
     return videos
 
 
-def main(
-    channel_id: Optional[str] = typer.Option(None, "--channel"),
-    max_results: Optional[int] = typer.Option(100, "--max"),
-    playlist_id: Optional[str] = typer.Option(None, "--playlist"),
-    year: Optional[int] = 2023,
+def save_videos(
+    *,
+    videos,
+    year: int,
 ):
-    if channel_id and playlist_id:
-        print("You can't specify both a channel and a playlist.")
-        raise typer.Exit(code=1)
-
-    if channel_id:
-        videos = get_channel_videos(channel_id=channel_id, max_results=max_results)
-
-    elif playlist_id:
-        videos = get_playlist_videos(playlist_id=playlist_id, max_results=max_results)
-
-    else:
-        print("You need to specify a channel or a playlist.")
-        raise typer.Exit(code=1)
-
-    save_videos(videos, year)
-
-
-def save_videos(videos, year: int):
     output_folder = Path(f"{year}")
     if not output_folder.exists():
         output_folder.mkdir()
@@ -163,6 +156,73 @@ def save_videos(videos, year: int):
         output_folder.joinpath(f"{data.slug}.md").write_text(
             frontmatter.dumps(post) + os.linesep
         )
+
+
+def get_channel_id_by_username(
+    *,
+    username: str,
+    max_results: int = 100,
+):
+    youtube = googleapiclient.discovery.build(
+        "youtube", "v3", developerKey=YOUTUBE_API_KEY
+    )
+
+    request = youtube.channels().list(part="id", forUsername=username)
+    response = request.execute()
+
+    print(response)
+
+    if response["items"]:
+        channel_id = response["items"][0]["id"]
+    else:
+        channel_id = None
+
+    playlists = []
+    request = youtube.playlists().list(
+        part="snippet",
+        channelId=channel_id,
+        maxResults=50,  # API allows up to 50 results per request
+    )
+
+    while request:
+        response = request.execute()
+        playlists += response.get("items", [])
+
+        # Prepare the next request to fetch more playlists if they exist
+        request = youtube.playlists().list_next(request, response)
+
+    return playlists
+
+
+def main(
+    channel_id: Optional[str] = typer.Option(None, "--channel"),
+    max_results: Optional[int] = typer.Option(100, "--max"),
+    playlist_id: Optional[str] = typer.Option(None, "--playlist"),
+    username: Optional[str] = typer.Option(None, "--username"),
+    year: Optional[int] = 2024,
+):
+    if channel_id and playlist_id:
+        print("You can't specify both a channel and a playlist.")
+        raise typer.Exit(code=1)
+
+    # Use this function to get the channel ID
+    if username:
+        playlists = get_channel_id_by_username(
+            username=username, max_results=max_results
+        )
+        print("playlists:", playlists)
+
+    if channel_id:
+        videos = get_channel_videos(channel_id=channel_id, max_results=max_results)
+
+    elif playlist_id:
+        videos = get_playlist_videos(playlist_id=playlist_id, max_results=max_results)
+
+    else:
+        print("You need to specify a channel or a playlist.")
+        raise typer.Exit(code=1)
+
+    save_videos(videos=videos, year=year)
 
 
 if __name__ == "__main__":
